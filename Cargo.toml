@@ -1,0 +1,20 @@
+[package]
+name = "todone"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "todone"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1"
+bpaf = { version = "0.9", default-features = false }
+crossterm = "0.28"
+jiff = "0.2"
+owo-colors = "4"
+
+[profile.release]
+lto = "fat"
+opt-level = "z"
+strip = "symbols"

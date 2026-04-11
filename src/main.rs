@@ -1,0 +1,165 @@
+mod carryover;
+mod config;
+mod daily;
+mod markdown;
+mod tui;
+
+use bpaf::*;
+use owo_colors::OwoColorize;
+use std::path::Path;
+
+// ---------------------------------------------------------------------------
+// CLI definition
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone)]
+enum Cmd {
+    Today,
+    Add { text: String, project: String },
+    Carry,
+    List { project: Option<String> },
+    Done,
+}
+
+fn today_parser() -> impl Parser<Cmd> {
+    pure(Cmd::Today)
+        .to_options()
+        .descr("Print path to today's file (creates it with carryover if needed)")
+        .command("today")
+}
+
+fn add_parser() -> impl Parser<Cmd> {
+    let text = positional::<String>("TEXT").help("Todo text");
+    let project = long("project")
+        .short('p')
+        .help("Project section (default: inbox)")
+        .argument::<String>("PROJECT")
+        .fallback("inbox".to_string());
+    construct!(Cmd::Add { project, text })
+        .to_options()
+        .descr("Add a todo to today's file")
+        .command("add")
+}
+
+fn carry_parser() -> impl Parser<Cmd> {
+    pure(Cmd::Carry)
+        .to_options()
+        .descr("Create today's file, carrying over open todos from the previous day (idempotent)")
+        .command("carry")
+}
+
+fn list_parser() -> impl Parser<Cmd> {
+    let project = long("project")
+        .short('p')
+        .help("Filter by project section")
+        .argument::<String>("PROJECT")
+        .optional();
+    construct!(Cmd::List { project })
+        .to_options()
+        .descr("List open todos")
+        .command("list")
+}
+
+fn done_parser() -> impl Parser<Cmd> {
+    pure(Cmd::Done)
+        .to_options()
+        .descr("Interactively mark todos as done (TUI)")
+        .command("done")
+}
+
+fn parse_opts() -> OptionParser<Cmd> {
+    construct!([
+        today_parser(),
+        add_parser(),
+        carry_parser(),
+        list_parser(),
+        done_parser()
+    ])
+    .to_options()
+    .descr("todone — personal daily TODO tracker")
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/// Write content to path via a temp file + rename for atomic replacement.
+pub(crate) fn atomic_write(path: &Path, content: &str) -> anyhow::Result<()> {
+    let tmp = path.with_extension("tmp");
+    std::fs::write(&tmp, content)?;
+    std::fs::rename(&tmp, path)?;
+    Ok(())
+}
+
+fn print_todos(sections: &[markdown::Section], filter: Option<&str>) {
+    let mut printed_any = false;
+    for section in sections {
+        if let Some(f) = filter {
+            if section.name != f {
+                continue;
+            }
+        }
+        let open: Vec<_> = section.todos.iter().filter(|t| !t.done).collect();
+        if open.is_empty() {
+            continue;
+        }
+        println!("{}", section.name.bold());
+        for todo in &open {
+            println!("  {} {}", "[ ]".dimmed(), todo.text);
+            for note in &todo.note_lines {
+                println!("      {}", note.trim_start().dimmed());
+            }
+        }
+        println!();
+        printed_any = true;
+    }
+    if !printed_any {
+        println!("{}", "No open todos.".dimmed());
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Entry point
+// ---------------------------------------------------------------------------
+
+fn main() -> anyhow::Result<()> {
+    let cmd = parse_opts().run();
+    let notes_dir = config::notes_dir();
+
+    match cmd {
+        Cmd::Today => {
+            carryover::carry(&notes_dir)?;
+            println!("{}", daily::today_path(&notes_dir).display());
+        }
+        Cmd::Add { text, project } => {
+            carryover::carry(&notes_dir)?;
+            let path = daily::today_path(&notes_dir);
+            let content = std::fs::read_to_string(&path)?;
+            let new_content = markdown::add_todo(&content, &project, &text);
+            atomic_write(&path, &new_content)?;
+        }
+        Cmd::Carry => {
+            let created = carryover::carry(&notes_dir)?;
+            let path = daily::today_path(&notes_dir);
+            if created {
+                eprintln!("Created {}", path.display());
+            } else {
+                eprintln!("Already exists: {}", path.display());
+            }
+        }
+        Cmd::List { project } => {
+            carryover::carry(&notes_dir)?;
+            let path = daily::today_path(&notes_dir);
+            let content = std::fs::read_to_string(&path)?;
+            let sections = markdown::parse_sections(&content);
+            print_todos(&sections, project.as_deref());
+        }
+        Cmd::Done => {
+            carryover::carry(&notes_dir)?;
+            let path = daily::today_path(&notes_dir);
+            tui::run(&path)?;
+        }
+    }
+
+    Ok(())
+}
