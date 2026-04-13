@@ -1,6 +1,7 @@
 mod carryover;
 mod config;
 mod daily;
+mod input;
 mod markdown;
 mod tui;
 
@@ -15,7 +16,7 @@ use std::path::Path;
 #[derive(Debug, Clone)]
 enum Cmd {
     Today,
-    Add { text: String, project: String },
+    Add { text: Option<String>, project: Option<String> },
     Carry,
     List { project: Option<String> },
     Done,
@@ -29,12 +30,14 @@ fn today_parser() -> impl Parser<Cmd> {
 }
 
 fn add_parser() -> impl Parser<Cmd> {
-    let text = positional::<String>("TEXT").help("Todo text");
+    let text = positional::<String>("TEXT")
+        .help("Todo text (omit for interactive prompt)")
+        .optional();
     let project = long("project")
         .short('p')
-        .help("Project section (default: inbox)")
+        .help("Project section (default: inbox, or interactive if omitted)")
         .argument::<String>("PROJECT")
-        .fallback("inbox".to_string());
+        .optional();
     construct!(Cmd::Add { project, text })
         .to_options()
         .descr("Add a todo to today's file")
@@ -135,6 +138,20 @@ fn main() -> anyhow::Result<()> {
             carryover::carry(&notes_dir)?;
             let path = daily::today_path(&notes_dir);
             let content = std::fs::read_to_string(&path)?;
+            let sections = markdown::parse_sections(&content);
+            let project_names: Vec<&str> = sections.iter().map(|s| s.name.as_str()).collect();
+
+            let (text, project) = match text {
+                Some(t) => {
+                    let p = match project {
+                        Some(p) => p,
+                        None => input::prompt_project(&project_names)?,
+                    };
+                    (t, p)
+                }
+                None => input::prompt_todo(&project_names)?,
+            };
+
             let new_content = markdown::add_todo(&content, &project, &text);
             atomic_write(&path, &new_content)?;
         }
