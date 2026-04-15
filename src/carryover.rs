@@ -33,14 +33,16 @@ fn build_content(date: &str, sections: &[crate::markdown::Section]) -> String {
     let mut carried_any = false;
 
     for section in sections {
-        let open: Vec<_> = section.todos.iter().filter(|t| !t.done).collect();
-        if open.is_empty() {
+        let carry: Vec<_> = section.todos.iter().filter(|t| t.state != crate::markdown::TodoState::Done).collect();
+        if carry.is_empty() {
             continue;
         }
         out.push('\n');
         out.push_str(&format!("## {}\n", section.name));
-        for todo in open {
-            out.push_str(&format!("- [ ] {}\n", todo.text));
+        for todo in carry {
+            out.push_str(todo.state.sigil());
+            out.push_str(&todo.text);
+            out.push('\n');
             for note in &todo.note_lines {
                 out.push_str(note);
                 out.push('\n');

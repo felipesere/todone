@@ -102,13 +102,17 @@ fn print_todos(sections: &[markdown::Section], filter: Option<&str>) {
                 continue;
             }
         }
-        let open: Vec<_> = section.todos.iter().filter(|t| !t.done).collect();
+        let open: Vec<_> = section.todos.iter().filter(|t| t.state != markdown::TodoState::Done).collect();
         if open.is_empty() {
             continue;
         }
         println!("{}", section.name.bold());
         for todo in &open {
-            println!("  {} {}", "[ ]".dimmed(), todo.text);
+            let sigil = match todo.state {
+                markdown::TodoState::InProgress => "[/]",
+                _ => "[ ]",
+            };
+            println!("  {} {}", sigil.dimmed(), todo.text);
             for note in &todo.note_lines {
                 println!("      {}", note.trim_start().dimmed());
             }

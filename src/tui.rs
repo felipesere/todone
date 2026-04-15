@@ -9,14 +9,14 @@ use crossterm::{
     terminal,
 };
 
-use crate::markdown;
+use crate::markdown::{self, TodoState};
 
 struct Item {
     section: String,
     text: String,
-    done: bool,
+    state: TodoState,
     line_no: usize,
-    original_done: bool,
+    original_state: TodoState,
 }
 
 pub fn run(path: &Path) -> anyhow::Result<()> {
@@ -29,9 +29,9 @@ pub fn run(path: &Path) -> anyhow::Result<()> {
             s.todos.iter().map(move |t| Item {
                 section: s.name.clone(),
                 text: t.text.clone(),
-                done: t.done,
+                state: t.state,
                 line_no: t.line_no,
-                original_done: t.done,
+                original_state: t.state,
             })
         })
         .collect();
@@ -53,12 +53,12 @@ pub fn run(path: &Path) -> anyhow::Result<()> {
     terminal::disable_raw_mode()?;
     run_result?;
 
-    // Persist any toggled items (toggle_done does in-place line replacement,
+    // Persist any changed items (set_state does in-place line replacement,
     // line count stays the same so line_no references remain valid).
     let mut content = std::fs::read_to_string(path)?;
     for item in &items {
-        if item.done != item.original_done {
-            content = markdown::toggle_done(&content, item.line_no);
+        if item.state != item.original_state {
+            content = markdown::set_state(&content, item.line_no, item.state);
         }
     }
     crate::atomic_write(path, &content)?;
@@ -89,7 +89,7 @@ fn event_loop(
                     }
                 }
                 KeyCode::Char(' ') | KeyCode::Enter => {
-                    items[*cursor].done = !items[*cursor].done;
+                    items[*cursor].state = items[*cursor].state.next();
                 }
                 _ => {}
             }
@@ -116,7 +116,11 @@ fn render(stdout: &mut impl Write, items: &[Item], cursor: usize) -> anyhow::Res
             prev_section.clone_from(&item.section);
         }
 
-        let checkbox = if item.done { "[x]" } else { "[ ]" };
+        let checkbox = match item.state {
+            TodoState::Open => "[ ]",
+            TodoState::InProgress => "[/]",
+            TodoState::Done => "[x]",
+        };
 
         if i == cursor {
             queue!(
@@ -125,10 +129,17 @@ fn render(stdout: &mut impl Write, items: &[Item], cursor: usize) -> anyhow::Res
                 Print(format!("> {} {}\r\n", checkbox, item.text)),
                 SetAttribute(Attribute::Reset),
             )?;
-        } else if item.done {
+        } else if item.state == TodoState::Done {
             queue!(
                 stdout,
                 SetForegroundColor(Color::DarkGrey),
+                Print(format!("  {} {}\r\n", checkbox, item.text)),
+                ResetColor,
+            )?;
+        } else if item.state == TodoState::InProgress {
+            queue!(
+                stdout,
+                SetForegroundColor(Color::Yellow),
                 Print(format!("  {} {}\r\n", checkbox, item.text)),
                 ResetColor,
             )?;
@@ -142,7 +153,7 @@ fn render(stdout: &mut impl Write, items: &[Item], cursor: usize) -> anyhow::Res
         stdout,
         cursor::MoveTo(0, rows - 1),
         SetForegroundColor(Color::DarkGrey),
-        Print("j/k: move  space: toggle  q: save & quit"),
+        Print("j/k: move  space: cycle state  q: save & quit"),
         ResetColor,
     )?;
 

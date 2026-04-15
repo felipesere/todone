@@ -1,6 +1,31 @@
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TodoState {
+    Open,
+    InProgress,
+    Done,
+}
+
+impl TodoState {
+    pub fn sigil(self) -> &'static str {
+        match self {
+            TodoState::Open => "- [ ] ",
+            TodoState::InProgress => "- [/] ",
+            TodoState::Done => "- [x] ",
+        }
+    }
+
+    pub fn next(self) -> TodoState {
+        match self {
+            TodoState::Open => TodoState::InProgress,
+            TodoState::InProgress => TodoState::Done,
+            TodoState::Done => TodoState::Open,
+        }
+    }
+}
+
 pub struct Todo {
     pub text: String,
-    pub done: bool,
+    pub state: TodoState,
     pub note_lines: Vec<String>,
     pub line_no: usize, // 0-indexed line in the source file
 }
@@ -28,12 +53,17 @@ pub fn parse_sections(content: &str) -> Vec<Section> {
         } else if let Some(text) = line.strip_prefix("- [ ] ") {
             flush_todo(&mut current_todo, &mut current_section);
             if current_section.is_some() {
-                current_todo = Some(Todo { text: text.to_string(), done: false, note_lines: Vec::new(), line_no });
+                current_todo = Some(Todo { text: text.to_string(), state: TodoState::Open, note_lines: Vec::new(), line_no });
+            }
+        } else if let Some(text) = line.strip_prefix("- [/] ") {
+            flush_todo(&mut current_todo, &mut current_section);
+            if current_section.is_some() {
+                current_todo = Some(Todo { text: text.to_string(), state: TodoState::InProgress, note_lines: Vec::new(), line_no });
             }
         } else if let Some(text) = line.strip_prefix("- [x] ").or_else(|| line.strip_prefix("- [X] ")) {
             flush_todo(&mut current_todo, &mut current_section);
             if current_section.is_some() {
-                current_todo = Some(Todo { text: text.to_string(), done: true, note_lines: Vec::new(), line_no });
+                current_todo = Some(Todo { text: text.to_string(), state: TodoState::Done, note_lines: Vec::new(), line_no });
             }
         } else if line.starts_with("  ") || line.starts_with('\t') {
             if let Some(todo) = current_todo.as_mut() {
@@ -98,16 +128,20 @@ pub fn add_todo(content: &str, project: &str, text: &str) -> String {
     result
 }
 
-/// Toggle the done state of the todo at the given (0-indexed) line number.
-/// Replaces `- [ ] ` with `- [x] ` or vice versa. Line count is unchanged.
-pub fn toggle_done(content: &str, line_no: usize) -> String {
+/// Set the state of the todo at the given (0-indexed) line number.
+/// Replaces the sigil in-place. Line count is unchanged.
+pub fn set_state(content: &str, line_no: usize, state: TodoState) -> String {
     let has_trailing = content.ends_with('\n');
     let mut lines: Vec<String> = content.lines().map(|l| l.to_string()).collect();
     if let Some(line) = lines.get_mut(line_no) {
-        if let Some(text) = line.strip_prefix("- [ ] ") {
-            *line = format!("- [x] {}", text);
-        } else if let Some(text) = line.strip_prefix("- [x] ").or_else(|| line.strip_prefix("- [X] ")) {
-            *line = format!("- [ ] {}", text);
+        let text = line
+            .strip_prefix("- [ ] ")
+            .or_else(|| line.strip_prefix("- [/] "))
+            .or_else(|| line.strip_prefix("- [x] "))
+            .or_else(|| line.strip_prefix("- [X] "))
+            .map(|t| t.to_string());
+        if let Some(text) = text {
+            *line = format!("{}{}", state.sigil(), text);
         }
     }
     let mut result = lines.join("\n");
