@@ -98,6 +98,37 @@ fn event_loop(
     Ok(())
 }
 
+/// Queue `text` with highlighting applied. `base_color` is restored after each colored span.
+fn queue_highlighted<W: Write>(w: &mut W, text: &str, base_color: Option<Color>) -> anyhow::Result<()> {
+    use crate::highlight::Segment;
+    for seg in crate::highlight::parse_segments(text) {
+        match seg {
+            Segment::Plain(s) => queue!(w, Print(s))?,
+            Segment::Mention(s) => {
+                queue!(w, SetForegroundColor(Color::Magenta), Print(s))?;
+                match base_color {
+                    Some(c) => queue!(w, SetForegroundColor(c))?,
+                    None => queue!(w, ResetColor)?,
+                }
+            }
+            Segment::Tag(s) => {
+                queue!(w, SetForegroundColor(Color::Cyan), Print(s))?;
+                match base_color {
+                    Some(c) => queue!(w, SetForegroundColor(c))?,
+                    None => queue!(w, ResetColor)?,
+                }
+            }
+            Segment::Code(s) => {
+                queue!(w, SetAttribute(Attribute::Bold), Print(s), SetAttribute(Attribute::NormalIntensity))?;
+                if let Some(c) = base_color {
+                    queue!(w, SetForegroundColor(c))?;
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
 fn render(stdout: &mut impl Write, items: &[Item], cursor: usize) -> anyhow::Result<()> {
     queue!(stdout, terminal::Clear(terminal::ClearType::All), cursor::MoveTo(0, 0))?;
 
@@ -123,28 +154,21 @@ fn render(stdout: &mut impl Write, items: &[Item], cursor: usize) -> anyhow::Res
         };
 
         if i == cursor {
-            queue!(
-                stdout,
-                SetAttribute(Attribute::Reverse),
-                Print(format!("> {} {}\r\n", checkbox, item.text)),
-                SetAttribute(Attribute::Reset),
-            )?;
+            queue!(stdout, SetAttribute(Attribute::Reverse), Print(format!("> {} ", checkbox)), SetAttribute(Attribute::Reset))?;
+            queue_highlighted(stdout, &item.text, None)?;
+            queue!(stdout, Print("\r\n"))?;
         } else if item.state == TodoState::Done {
-            queue!(
-                stdout,
-                SetForegroundColor(Color::DarkGrey),
-                Print(format!("  {} {}\r\n", checkbox, item.text)),
-                ResetColor,
-            )?;
+            queue!(stdout, SetForegroundColor(Color::DarkGrey), Print(format!("  {} ", checkbox)))?;
+            queue_highlighted(stdout, &item.text, Some(Color::DarkGrey))?;
+            queue!(stdout, ResetColor, Print("\r\n"))?;
         } else if item.state == TodoState::InProgress {
-            queue!(
-                stdout,
-                SetForegroundColor(Color::Yellow),
-                Print(format!("  {} {}\r\n", checkbox, item.text)),
-                ResetColor,
-            )?;
+            queue!(stdout, SetForegroundColor(Color::Yellow), Print(format!("  {} ", checkbox)))?;
+            queue_highlighted(stdout, &item.text, Some(Color::Yellow))?;
+            queue!(stdout, ResetColor, Print("\r\n"))?;
         } else {
-            queue!(stdout, Print(format!("  {} {}\r\n", checkbox, item.text)))?;
+            queue!(stdout, Print(format!("  {} ", checkbox)))?;
+            queue_highlighted(stdout, &item.text, None)?;
+            queue!(stdout, Print("\r\n"))?;
         }
     }
 

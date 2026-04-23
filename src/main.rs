@@ -1,6 +1,7 @@
 mod carryover;
 mod config;
 mod daily;
+mod highlight;
 mod input;
 mod markdown;
 mod tui;
@@ -100,6 +101,20 @@ pub(crate) fn atomic_write(path: &Path, content: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
+fn highlight_text(text: &str) -> String {
+    use highlight::Segment;
+    let mut out = String::new();
+    for seg in highlight::parse_segments(text) {
+        match seg {
+            Segment::Plain(s) => out.push_str(s),
+            Segment::Mention(s) => out.push_str(&format!("{}", s.magenta())),
+            Segment::Tag(s) => out.push_str(&format!("{}", s.cyan())),
+            Segment::Code(s) => out.push_str(&format!("{}", s.bold())),
+        }
+    }
+    out
+}
+
 fn print_todos(sections: &[markdown::Section], filter: Option<&str>) {
     let mut printed_any = false;
     for section in sections {
@@ -118,7 +133,7 @@ fn print_todos(sections: &[markdown::Section], filter: Option<&str>) {
                 markdown::TodoState::InProgress => "[/]",
                 _ => "[ ]",
             };
-            println!("  {} {}", sigil.dimmed(), todo.text);
+            println!("  {} {}", sigil.dimmed(), highlight_text(&todo.text));
             for note in &todo.note_lines {
                 println!("      {}", note.trim_start().dimmed());
             }
