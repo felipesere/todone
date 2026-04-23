@@ -1,4 +1,4 @@
-use dialoguer::{theme::ColorfulTheme, Input, Select};
+use dialoguer::{theme::ColorfulTheme, FuzzySelect, Input};
 
 /// Interactively prompt for todo text and a project selection.
 /// `existing_projects` is the list of sections already in today's file.
@@ -34,7 +34,7 @@ fn prompt_project_with_theme(
 
     let default_idx = projects.iter().position(|p| *p == "inbox").unwrap_or(0);
 
-    let idx = Select::with_theme(theme)
+    let idx = FuzzySelect::with_theme(theme)
         .with_prompt("Project")
         .items(&projects)
         .default(default_idx)
