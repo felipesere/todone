@@ -18,7 +18,7 @@ enum Cmd {
     Today,
     Add { text: Option<String>, project: Option<String> },
     Carry,
-    List { project: Option<String> },
+    List { project: Option<String>, all: bool },
     Done,
 }
 
@@ -35,6 +35,7 @@ fn add_parser() -> impl Parser<Cmd> {
         .optional();
     let project = long("project")
         .short('p')
+        .env("TODONE_PROJECT")
         .help("Project section (default: inbox, or interactive if omitted)")
         .argument::<String>("PROJECT")
         .optional();
@@ -54,10 +55,15 @@ fn carry_parser() -> impl Parser<Cmd> {
 fn list_parser() -> impl Parser<Cmd> {
     let project = long("project")
         .short('p')
+        .env("TODONE_PROJECT")
         .help("Filter by project section")
         .argument::<String>("PROJECT")
         .optional();
-    construct!(Cmd::List { project })
+    let all = long("all")
+        .short('a')
+        .help("Show all projects, ignoring any --project / TODONE_PROJECT filter")
+        .switch();
+    construct!(Cmd::List { project, all })
         .to_options()
         .descr("List open todos")
         .command("list")
@@ -168,12 +174,13 @@ fn main() -> anyhow::Result<()> {
                 eprintln!("Already exists: {}", path.display());
             }
         }
-        Cmd::List { project } => {
+        Cmd::List { project, all } => {
             carryover::carry(&notes_dir)?;
             let path = daily::today_path(&notes_dir);
             let content = std::fs::read_to_string(&path)?;
             let sections = markdown::parse_sections(&content);
-            print_todos(&sections, project.as_deref());
+            let filter = if all { None } else { project.as_deref() };
+            print_todos(&sections, filter);
         }
         Cmd::Done => {
             carryover::carry(&notes_dir)?;
