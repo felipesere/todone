@@ -17,9 +17,15 @@ use std::path::Path;
 #[derive(Debug, Clone)]
 enum Cmd {
     Today,
-    Add { text: Option<String>, project: Option<String> },
+    Add {
+        text: Option<String>,
+        project: Option<String>,
+    },
     Carry,
-    List { project: Option<String>, all: bool },
+    List {
+        project: Option<String>,
+        all: bool,
+    },
     Done,
 }
 
@@ -123,17 +129,22 @@ fn print_todos(sections: &[markdown::Section], filter: Option<&str>) {
                 continue;
             }
         }
-        let open: Vec<_> = section.todos.iter().filter(|t| t.state != markdown::TodoState::Done).collect();
-        if open.is_empty() {
+        if section.todos.is_empty() {
             continue;
         }
         println!("{}", section.name.bold());
-        for todo in &open {
+        for todo in &section.todos {
             let sigil = match todo.state {
                 markdown::TodoState::InProgress => "[/]",
+                markdown::TodoState::Done => "[x]",
                 _ => "[ ]",
             };
-            println!("  {} {}", sigil.dimmed(), highlight_text(&todo.text));
+            let text = if todo.state == markdown::TodoState::Done {
+                highlight_text(&todo.text).dimmed().to_string()
+            } else {
+                highlight_text(&todo.text)
+            };
+            println!("  {} {text}", sigil.dimmed());
             for note in &todo.note_lines {
                 println!("      {}", note.trim_start().dimmed());
             }
