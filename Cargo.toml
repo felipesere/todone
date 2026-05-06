@@ -14,6 +14,9 @@ crossterm = "0.28"
 dialoguer = { version = "0.11", features = ["fuzzy-select"] }
 jiff = "0.2"
 owo-colors = "4"
+serde = { version = "1", features = ["derive"] }
+saphyr = "0.0.6"
+serde-saphyr = "0.0.26"
 
 [profile.release]
 lto = "fat"
