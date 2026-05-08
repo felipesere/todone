@@ -19,7 +19,7 @@ struct Item {
     original_state: TodoState,
 }
 
-pub fn run(path: &Path) -> anyhow::Result<()> {
+pub fn run(path: &Path, theme: &crate::config::Theme) -> anyhow::Result<()> {
     let content = std::fs::read_to_string(path)?;
     let sections = markdown::parse_sections(&content);
 
@@ -47,7 +47,7 @@ pub fn run(path: &Path) -> anyhow::Result<()> {
     terminal::enable_raw_mode()?;
     execute!(stdout, terminal::EnterAlternateScreen, cursor::Hide)?;
 
-    let run_result = event_loop(&mut stdout, &mut items, &mut cursor_idx);
+    let run_result = event_loop(&mut stdout, &mut items, &mut cursor_idx, theme);
 
     execute!(stdout, terminal::LeaveAlternateScreen, cursor::Show)?;
     terminal::disable_raw_mode()?;
@@ -70,9 +70,10 @@ fn event_loop(
     stdout: &mut impl Write,
     items: &mut [Item],
     cursor: &mut usize,
+    theme: &crate::config::Theme,
 ) -> anyhow::Result<()> {
     loop {
-        render(stdout, items, *cursor)?;
+        render(stdout, items, *cursor, theme)?;
 
         if let Event::Key(key) = event::read()? {
             match key.code {
@@ -98,38 +99,37 @@ fn event_loop(
     Ok(())
 }
 
-/// Queue `text` with highlighting applied. `base_color` is restored after each colored span.
-fn queue_highlighted<W: Write>(w: &mut W, text: &str, base_color: Option<Color>) -> anyhow::Result<()> {
+fn queue_highlighted<W: Write>(
+    w: &mut W,
+    text: &str,
+    base: &crate::config::ElementStyle,
+    theme: &crate::config::Theme,
+) -> anyhow::Result<()> {
     use crate::highlight::Segment;
     for seg in crate::highlight::parse_segments(text) {
         match seg {
             Segment::Plain(s) => queue!(w, Print(s))?,
             Segment::Mention(s) => {
-                queue!(w, SetForegroundColor(Color::Magenta), Print(s))?;
-                match base_color {
-                    Some(c) => queue!(w, SetForegroundColor(c))?,
-                    None => queue!(w, ResetColor)?,
-                }
+                apply_element_style(w, &theme.mention)?;
+                queue!(w, Print(s))?;
+                reset_to_element_style(w, base)?;
             }
             Segment::Tag(s) => {
-                queue!(w, SetForegroundColor(Color::Cyan), Print(s))?;
-                match base_color {
-                    Some(c) => queue!(w, SetForegroundColor(c))?,
-                    None => queue!(w, ResetColor)?,
-                }
+                apply_element_style(w, &theme.tag)?;
+                queue!(w, Print(s))?;
+                reset_to_element_style(w, base)?;
             }
             Segment::Code(s) => {
-                queue!(w, SetAttribute(Attribute::Bold), Print(s), SetAttribute(Attribute::NormalIntensity))?;
-                if let Some(c) = base_color {
-                    queue!(w, SetForegroundColor(c))?;
-                }
+                apply_element_style(w, &theme.code)?;
+                queue!(w, Print(s))?;
+                reset_to_element_style(w, base)?;
             }
         }
     }
     Ok(())
 }
 
-fn render(stdout: &mut impl Write, items: &[Item], cursor: usize) -> anyhow::Result<()> {
+fn render(stdout: &mut impl Write, items: &[Item], cursor: usize, theme: &crate::config::Theme) -> anyhow::Result<()> {
     queue!(stdout, terminal::Clear(terminal::ClearType::All), cursor::MoveTo(0, 0))?;
 
     let mut prev_section = String::new();
@@ -138,37 +138,32 @@ fn render(stdout: &mut impl Write, items: &[Item], cursor: usize) -> anyhow::Res
             if i > 0 {
                 queue!(stdout, Print("\r\n"))?;
             }
-            queue!(
-                stdout,
-                SetAttribute(Attribute::Bold),
-                Print(format!("  {}\r\n", item.section)),
-                SetAttribute(Attribute::Reset),
-            )?;
+            apply_element_style(stdout, &theme.heading)?;
+            queue!(stdout, Print(format!("  {}\r\n", item.section)))?;
+            queue!(stdout, ResetColor, SetAttribute(Attribute::Reset))?;
             prev_section.clone_from(&item.section);
         }
 
         let checkbox = match item.state {
-            TodoState::Open => "[ ]",
+            TodoState::Open       => "[ ]",
             TodoState::InProgress => "[/]",
-            TodoState::Done => "[x]",
+            TodoState::Done       => "[x]",
         };
 
         if i == cursor {
             queue!(stdout, SetAttribute(Attribute::Reverse), Print(format!("> {} ", checkbox)), SetAttribute(Attribute::Reset))?;
-            queue_highlighted(stdout, &item.text, None)?;
+            queue_highlighted(stdout, &item.text, &theme.open_todo, theme)?;
             queue!(stdout, Print("\r\n"))?;
-        } else if item.state == TodoState::Done {
-            queue!(stdout, SetForegroundColor(Color::DarkGrey), Print(format!("  {} ", checkbox)))?;
-            queue_highlighted(stdout, &item.text, Some(Color::DarkGrey))?;
-            queue!(stdout, ResetColor, Print("\r\n"))?;
-        } else if item.state == TodoState::InProgress {
-            queue!(stdout, SetForegroundColor(Color::Yellow), Print(format!("  {} ", checkbox)))?;
-            queue_highlighted(stdout, &item.text, Some(Color::Yellow))?;
-            queue!(stdout, ResetColor, Print("\r\n"))?;
         } else {
+            let line_style = match item.state {
+                TodoState::Open       => &theme.open_todo,
+                TodoState::InProgress => &theme.in_progress,
+                TodoState::Done       => &theme.done,
+            };
+            apply_element_style(stdout, line_style)?;
             queue!(stdout, Print(format!("  {} ", checkbox)))?;
-            queue_highlighted(stdout, &item.text, None)?;
-            queue!(stdout, Print("\r\n"))?;
+            queue_highlighted(stdout, &item.text, line_style, theme)?;
+            queue!(stdout, ResetColor, SetAttribute(Attribute::Reset), Print("\r\n"))?;
         }
     }
 
@@ -183,4 +178,61 @@ fn render(stdout: &mut impl Write, items: &[Item], cursor: usize) -> anyhow::Res
 
     stdout.flush()?;
     Ok(())
+}
+
+fn to_ct_color(c: &crate::config::ThemeColor) -> crossterm::style::Color {
+    use crate::config::{NamedColor, ThemeColor};
+    use crossterm::style::Color;
+    match c {
+        ThemeColor::Rgb { r, g, b } => Color::Rgb { r: *r, g: *g, b: *b },
+        ThemeColor::Named(n) => match n {
+            NamedColor::Black       => Color::Black,
+            NamedColor::Red         => Color::Red,
+            NamedColor::Green       => Color::Green,
+            NamedColor::Yellow      => Color::Yellow,
+            NamedColor::Blue        => Color::Blue,
+            NamedColor::Magenta     => Color::Magenta,
+            NamedColor::Cyan        => Color::Cyan,
+            NamedColor::White       => Color::White,
+            NamedColor::DarkGrey    => Color::DarkGrey,
+            NamedColor::DarkRed     => Color::DarkRed,
+            NamedColor::DarkGreen   => Color::DarkGreen,
+            NamedColor::DarkYellow  => Color::DarkYellow,
+            NamedColor::DarkBlue    => Color::DarkBlue,
+            NamedColor::DarkMagenta => Color::DarkMagenta,
+            NamedColor::DarkCyan    => Color::DarkCyan,
+        },
+    }
+}
+
+fn to_ct_attr(s: crate::config::TextStyle) -> crossterm::style::Attribute {
+    use crate::config::TextStyle;
+    use crossterm::style::Attribute;
+    match s {
+        TextStyle::Bold      => Attribute::Bold,
+        TextStyle::Underline => Attribute::Underlined,
+        TextStyle::Italic    => Attribute::Italic,
+        TextStyle::Dimmed    => Attribute::Dim,
+    }
+}
+
+fn apply_element_style<W: std::io::Write>(
+    w: &mut W,
+    style: &crate::config::ElementStyle,
+) -> anyhow::Result<()> {
+    if let Some(c) = &style.color {
+        queue!(w, SetForegroundColor(to_ct_color(c)))?;
+    }
+    for &s in &style.styles {
+        queue!(w, SetAttribute(to_ct_attr(s)))?;
+    }
+    Ok(())
+}
+
+fn reset_to_element_style<W: std::io::Write>(
+    w: &mut W,
+    style: &crate::config::ElementStyle,
+) -> anyhow::Result<()> {
+    queue!(w, ResetColor, SetAttribute(Attribute::Reset))?;
+    apply_element_style(w, style)
 }
