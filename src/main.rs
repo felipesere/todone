@@ -163,7 +163,7 @@ fn print_todos(sections: &[markdown::Section], filter: Option<&str>) {
 
 fn main() -> anyhow::Result<()> {
     let cmd = parse_opts().run();
-    let notes_dir = config::notes_dir();
+    let notes_dir = config::load_config()?.notes_dir;
 
     match cmd {
         Cmd::Today => {
