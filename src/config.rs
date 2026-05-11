@@ -64,9 +64,9 @@ struct LoadedTheme {
 }
 
 #[derive(Deserialize, Default)]
-pub struct LoadedElementStyle {
-    pub color:  Option<ThemeColor>,
-    pub styles: Option<Vec<TextStyle>>,
+struct LoadedElementStyle {
+    color:  Option<ThemeColor>,
+    styles: Option<Vec<TextStyle>>,
 }
 
 impl<'de> Deserialize<'de> for ThemeColor {
