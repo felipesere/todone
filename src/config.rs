@@ -127,7 +127,7 @@ impl Default for Theme {
 // Merge
 // ---------------------------------------------------------------------------
 
-pub fn merge_element(loaded: Option<LoadedElementStyle>, default: ElementStyle) -> ElementStyle {
+fn merge_element(loaded: Option<LoadedElementStyle>, default: ElementStyle) -> ElementStyle {
     match loaded {
         None    => default,
         Some(l) => ElementStyle {

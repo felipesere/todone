@@ -150,16 +150,17 @@ fn render(stdout: &mut impl Write, items: &[Item], cursor: usize, theme: &crate:
             TodoState::Done       => "[x]",
         };
 
+        let line_style = match item.state {
+            TodoState::Open       => &theme.open_todo,
+            TodoState::InProgress => &theme.in_progress,
+            TodoState::Done       => &theme.done,
+        };
+
         if i == cursor {
             queue!(stdout, SetAttribute(Attribute::Reverse), Print(format!("> {} ", checkbox)), SetAttribute(Attribute::Reset))?;
-            queue_highlighted(stdout, &item.text, &theme.open_todo, theme)?;
+            queue_highlighted(stdout, &item.text, line_style, theme)?;
             queue!(stdout, Print("\r\n"))?;
         } else {
-            let line_style = match item.state {
-                TodoState::Open       => &theme.open_todo,
-                TodoState::InProgress => &theme.in_progress,
-                TodoState::Done       => &theme.done,
-            };
             apply_element_style(stdout, line_style)?;
             queue!(stdout, Print(format!("  {} ", checkbox)))?;
             queue_highlighted(stdout, &item.text, line_style, theme)?;
