@@ -10,10 +10,6 @@ use bpaf::*;
 use owo_colors::OwoColorize;
 use std::path::Path;
 
-// ---------------------------------------------------------------------------
-// CLI definition
-// ---------------------------------------------------------------------------
-
 #[derive(Debug, Clone)]
 enum Cmd {
     Today,
@@ -59,7 +55,7 @@ fn carry_parser() -> impl Parser<Cmd> {
         .command("carry")
 }
 
-fn list_parser() -> impl Parser<Cmd> {
+fn list_inner() -> impl Parser<Cmd> {
     let project = long("project")
         .short('p')
         .env("TODONE_PROJECT")
@@ -71,6 +67,10 @@ fn list_parser() -> impl Parser<Cmd> {
         .help("Show all projects, ignoring any --project / TODONE_PROJECT filter")
         .switch();
     construct!(Cmd::List { project, all })
+}
+
+fn list_parser() -> impl Parser<Cmd> {
+    list_inner()
         .to_options()
         .descr("List open todos")
         .command("list")
@@ -89,7 +89,8 @@ fn parse_opts() -> OptionParser<Cmd> {
         add_parser(),
         carry_parser(),
         list_parser(),
-        done_parser()
+        done_parser(),
+        list_inner()
     ])
     .to_options()
     .descr("todone — personal daily TODO tracker")
