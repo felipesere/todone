@@ -18,6 +18,7 @@ enum Cmd {
         project: Option<String>,
     },
     Carry,
+    Edit,
     List {
         project: Option<String>,
         all: bool,
@@ -55,6 +56,13 @@ fn carry_parser() -> impl Parser<Cmd> {
         .command("carry")
 }
 
+fn edit_parser() -> impl Parser<Cmd> {
+    pure(Cmd::Edit)
+        .to_options()
+        .descr("Open today's file in $EDITOR (creates it with carryover if needed)")
+        .command("edit")
+}
+
 fn list_inner() -> impl Parser<Cmd> {
     let project = long("project")
         .short('p')
@@ -88,6 +96,7 @@ fn parse_opts() -> OptionParser<Cmd> {
         today_parser(),
         add_parser(),
         carry_parser(),
+        edit_parser(),
         list_parser(),
         done_parser(),
         list_inner()
@@ -201,6 +210,33 @@ fn main() -> anyhow::Result<()> {
             } else {
                 eprintln!("Already exists: {}", path.display());
             }
+        }
+        Cmd::Edit => {
+            carryover::carry(&notes_dir)?;
+            let path = daily::today_path(&notes_dir);
+            let editor = std::env::var("EDITOR")
+                .map_err(|_| anyhow::anyhow!("$EDITOR is not set"))?;
+
+            let scratch = path.with_extension("edit.tmp");
+            std::fs::copy(&path, &scratch)?;
+
+            let status = std::process::Command::new(editor).arg(&scratch).status();
+
+            let status = match status {
+                Ok(s) => s,
+                Err(e) => {
+                    let _ = std::fs::remove_file(&scratch);
+                    return Err(e.into());
+                }
+            };
+            if !status.success() {
+                let _ = std::fs::remove_file(&scratch);
+                anyhow::bail!("editor exited with {status}, original file left untouched");
+            }
+
+            let new_content = std::fs::read_to_string(&scratch)?;
+            std::fs::remove_file(&scratch)?;
+            atomic_write(&path, &new_content)?;
         }
         Cmd::List { project, all } => {
             carryover::carry(&notes_dir)?;
