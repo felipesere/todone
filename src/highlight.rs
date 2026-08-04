@@ -5,6 +5,30 @@ pub enum Segment<'a> {
     Mention(&'a str), // @name  — magenta/purple
     Tag(&'a str),     // #tag   — cyan
     Code(&'a str),    // `…`    — bold (includes the surrounding backticks)
+    Link { text: &'a str, url: &'a str }, // [text](url)
+}
+
+/// The parsed pieces of a `[text](url)` markdown link.
+#[derive(Debug, PartialEq, Eq)]
+pub struct LinkData<'a> {
+    pub text: &'a str,
+    pub url: &'a str,
+    /// Byte offset (relative to the full input `text`) just past the closing `)`.
+    pub end: usize,
+}
+
+/// Tries to parse a markdown link `[text](url)` starting at `pos`, where
+/// `text.as_bytes()[pos] == b'['`. Returns `None` if the brackets/parens
+/// don't close out into a well-formed link.
+fn try_parse_link(text: &str, pos: usize) -> Option<LinkData<'_>> {
+    let close = pos + text[pos..].find(']')?;
+    let link_text = &text[pos + 1..close];
+    if !text[close + 1..].starts_with('(') {
+        return None;
+    }
+    let paren = close + 1 + text[close + 1..].find(')')?;
+    let url = &text[close + 2..paren];
+    Some(LinkData { text: link_text, url, end: paren + 1 })
 }
 
 pub fn parse_segments(text: &str) -> Vec<Segment<'_>> {
@@ -14,7 +38,7 @@ pub fn parse_segments(text: &str) -> Vec<Segment<'_>> {
 
     while start < len {
         let next = text[start..]
-            .find(|c: char| c == '@' || c == '#' || c == '`')
+            .find(|c: char| c == '@' || c == '#' || c == '`' || c == '[')
             .map(|i| start + i);
         match next {
             None => {
@@ -26,7 +50,18 @@ pub fn parse_segments(text: &str) -> Vec<Segment<'_>> {
                     segments.push(Segment::Plain(&text[start..pos]));
                 }
                 let ch = text.as_bytes()[pos] as char;
-                if ch == '`' {
+                if ch == '[' {
+                    match try_parse_link(text, pos) {
+                        Some(LinkData { text: link_text, url, end }) => {
+                            segments.push(Segment::Link { text: link_text, url });
+                            start = end;
+                        }
+                        None => {
+                            segments.push(Segment::Plain("["));
+                            start = pos + 1;
+                        }
+                    }
+                } else if ch == '`' {
                     match text[pos + 1..].find('`') {
                         Some(close_off) => {
                             let close = pos + 1 + close_off;
@@ -71,8 +106,50 @@ mod tests {
                 Segment::Mention(t) => format!("mention:{t}"),
                 Segment::Tag(t) => format!("tag:{t}"),
                 Segment::Code(t) => format!("code:{t}"),
+                Segment::Link { text, url } => format!("link:{text}|{url}"),
             })
             .collect()
+    }
+
+    #[test]
+    fn link_only() {
+        assert_eq!(segs("[click me](https://example.com)"), vec!["link:click me|https://example.com"]);
+    }
+
+    #[test]
+    fn link_in_sentence() {
+        assert_eq!(
+            segs("see [the docs](https://example.com) for more"),
+            vec!["plain:see ", "link:the docs|https://example.com", "plain: for more"],
+        );
+    }
+
+    #[test]
+    fn unclosed_bracket_is_plain() {
+        assert_eq!(segs("todo [oops"), vec!["plain:todo ", "plain:[", "plain:oops"]);
+    }
+
+    #[test]
+    fn bracket_without_parens_is_plain() {
+        assert_eq!(segs("[not a link] ok"), vec!["plain:[", "plain:not a link] ok"]);
+    }
+
+    #[test]
+    fn try_parse_link_ok() {
+        let text = "[foo](bar)";
+        assert_eq!(try_parse_link(text, 0), Some(LinkData { text: "foo", url: "bar", end: 10 }));
+    }
+
+    #[test]
+    fn try_parse_link_missing_paren() {
+        let text = "[foo] bar";
+        assert_eq!(try_parse_link(text, 0), None);
+    }
+
+    #[test]
+    fn try_parse_link_unclosed_paren() {
+        let text = "[foo](bar";
+        assert_eq!(try_parse_link(text, 0), None);
     }
 
     #[test]

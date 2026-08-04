@@ -124,6 +124,11 @@ fn queue_highlighted<W: Write>(
                 queue!(w, Print(s))?;
                 reset_to_element_style(w, base)?;
             }
+            Segment::Link { text, url } => {
+                apply_element_style(w, &theme.link)?;
+                queue!(w, Print(format!("\x1b]8;;{url}\x1b\\{text}\x1b]8;;\x1b\\")))?;
+                reset_to_element_style(w, base)?;
+            }
         }
     }
     Ok(())

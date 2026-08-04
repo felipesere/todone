@@ -126,6 +126,12 @@ fn highlight_text(text: &str) -> String {
             Segment::Mention(s) => out.push_str(&format!("{}", s.magenta())),
             Segment::Tag(s) => out.push_str(&format!("{}", s.cyan())),
             Segment::Code(s) => out.push_str(&format!("{}", s.bold())),
+            Segment::Link { text, url } => {
+                out.push_str(&format!(
+                    "\x1b]8;;{url}\x1b\\{}\x1b]8;;\x1b\\",
+                    text.blue().underline()
+                ));
+            }
         }
     }
     out
