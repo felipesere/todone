@@ -19,6 +19,7 @@ pub struct Theme {
     pub mention:     ElementStyle,
     pub tag:         ElementStyle,
     pub link:        ElementStyle,
+    pub priority:    ElementStyle,
 }
 
 #[derive(Clone)]
@@ -63,6 +64,7 @@ struct LoadedTheme {
     mention:     Option<LoadedElementStyle>,
     tag:         Option<LoadedElementStyle>,
     link:        Option<LoadedElementStyle>,
+    priority:    Option<LoadedElementStyle>,
 }
 
 #[derive(Deserialize, Default)]
@@ -122,6 +124,7 @@ impl Default for Theme {
             mention:     ElementStyle { color: Some(ThemeColor::Named(NamedColor::Magenta)),  styles: vec![] },
             tag:         ElementStyle { color: Some(ThemeColor::Named(NamedColor::Cyan)),     styles: vec![] },
             link:        ElementStyle { color: Some(ThemeColor::Named(NamedColor::Blue)),     styles: vec![TextStyle::Underline] },
+            priority:    ElementStyle { color: Some(ThemeColor::Named(NamedColor::Red)),      styles: vec![TextStyle::Bold] },
         }
     }
 }
@@ -151,6 +154,7 @@ fn merge_theme(loaded: LoadedTheme) -> Theme {
         mention:     merge_element(loaded.mention,      d.mention),
         tag:         merge_element(loaded.tag,          d.tag),
         link:        merge_element(loaded.link,         d.link),
+        priority:    merge_element(loaded.priority,      d.priority),
     }
 }
 

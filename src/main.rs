@@ -197,7 +197,12 @@ fn print_todos(sections: &[markdown::Section], filter: Option<&str>, theme: &con
             } else {
                 highlight_text(&todo.text, theme)
             };
-            println!("  {} {text}", sigil.dimmed());
+            let marker = if todo.priority > 0 {
+                format!("{} ", to_owo_style(&theme.priority).style("!".repeat(todo.priority as usize)))
+            } else {
+                String::new()
+            };
+            println!("  {} {marker}{text}", sigil.dimmed());
             for note in &todo.note_lines {
                 println!("      {}", note.trim_start().dimmed());
             }

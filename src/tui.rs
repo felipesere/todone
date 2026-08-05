@@ -17,6 +17,7 @@ struct Item {
     state: TodoState,
     line_no: usize,
     original_state: TodoState,
+    priority: u8,
 }
 
 pub fn run(path: &Path, theme: &crate::config::Theme) -> anyhow::Result<()> {
@@ -32,6 +33,7 @@ pub fn run(path: &Path, theme: &crate::config::Theme) -> anyhow::Result<()> {
                 state: t.state,
                 line_no: t.line_no,
                 original_state: t.state,
+                priority: t.priority,
             })
         })
         .collect();
@@ -134,6 +136,20 @@ fn queue_highlighted<W: Write>(
     Ok(())
 }
 
+fn queue_priority_marker<W: Write>(
+    w: &mut W,
+    priority: u8,
+    priority_style: &crate::config::ElementStyle,
+    base: &crate::config::ElementStyle,
+) -> anyhow::Result<()> {
+    if priority > 0 {
+        apply_element_style(w, priority_style)?;
+        queue!(w, Print(format!("{} ", "!".repeat(priority as usize))))?;
+        reset_to_element_style(w, base)?;
+    }
+    Ok(())
+}
+
 fn render(stdout: &mut impl Write, items: &[Item], cursor: usize, theme: &crate::config::Theme) -> anyhow::Result<()> {
     queue!(stdout, terminal::Clear(terminal::ClearType::All), cursor::MoveTo(0, 0))?;
 
@@ -163,11 +179,13 @@ fn render(stdout: &mut impl Write, items: &[Item], cursor: usize, theme: &crate:
 
         if i == cursor {
             queue!(stdout, SetAttribute(Attribute::Reverse), Print(format!("> {} ", checkbox)), SetAttribute(Attribute::Reset))?;
+            queue_priority_marker(stdout, item.priority, &theme.priority, line_style)?;
             queue_highlighted(stdout, &item.text, line_style, theme)?;
             queue!(stdout, Print("\r\n"))?;
         } else {
             apply_element_style(stdout, line_style)?;
             queue!(stdout, Print(format!("  {} ", checkbox)))?;
+            queue_priority_marker(stdout, item.priority, &theme.priority, line_style)?;
             queue_highlighted(stdout, &item.text, line_style, theme)?;
             queue!(stdout, ResetColor, SetAttribute(Attribute::Reset), Print("\r\n"))?;
         }

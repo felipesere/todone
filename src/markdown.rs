@@ -28,11 +28,31 @@ pub struct Todo {
     pub state: TodoState,
     pub note_lines: Vec<String>,
     pub line_no: usize, // 0-indexed line in the source file
+    pub priority: u8,   // 0 (none) to 3 (`!!!`), from a leading `!` run in the text
 }
 
 pub struct Section {
     pub name: String,
     pub todos: Vec<Todo>,
+}
+
+/// Strip a leading run of `!` (up to 3) from `text`, returning the priority
+/// level and the remaining text with one optional following space removed.
+fn extract_priority(text: &str) -> (u8, String) {
+    let bang_count = text.chars().take_while(|&c| c == '!').count();
+    let priority = bang_count.min(3) as u8;
+    if priority == 0 {
+        return (0, text.to_string());
+    }
+    let rest = &text[priority as usize..];
+    let rest = rest.strip_prefix(' ').unwrap_or(rest);
+    (priority, rest.to_string())
+}
+
+/// Sort todos so higher-priority items (more leading `!`) come first,
+/// preserving relative order among todos with the same priority.
+pub fn sort_by_priority(todos: &mut [Todo]) {
+    todos.sort_by(|a, b| b.priority.cmp(&a.priority));
 }
 
 /// Parse a file's content into sections. Lines that are not section headings,
@@ -53,17 +73,20 @@ pub fn parse_sections(content: &str) -> Vec<Section> {
         } else if let Some(text) = line.strip_prefix("- [ ] ") {
             flush_todo(&mut current_todo, &mut current_section);
             if current_section.is_some() {
-                current_todo = Some(Todo { text: text.to_string(), state: TodoState::Open, note_lines: Vec::new(), line_no });
+                let (priority, text) = extract_priority(text);
+                current_todo = Some(Todo { text, state: TodoState::Open, note_lines: Vec::new(), line_no, priority });
             }
         } else if let Some(text) = line.strip_prefix("- [/] ") {
             flush_todo(&mut current_todo, &mut current_section);
             if current_section.is_some() {
-                current_todo = Some(Todo { text: text.to_string(), state: TodoState::InProgress, note_lines: Vec::new(), line_no });
+                let (priority, text) = extract_priority(text);
+                current_todo = Some(Todo { text, state: TodoState::InProgress, note_lines: Vec::new(), line_no, priority });
             }
         } else if let Some(text) = line.strip_prefix("- [x] ").or_else(|| line.strip_prefix("- [X] ")) {
             flush_todo(&mut current_todo, &mut current_section);
             if current_section.is_some() {
-                current_todo = Some(Todo { text: text.to_string(), state: TodoState::Done, note_lines: Vec::new(), line_no });
+                let (priority, text) = extract_priority(text);
+                current_todo = Some(Todo { text, state: TodoState::Done, note_lines: Vec::new(), line_no, priority });
             }
         } else if line.starts_with("  ") || line.starts_with('\t') {
             if let Some(todo) = current_todo.as_mut() {
@@ -76,6 +99,10 @@ pub fn parse_sections(content: &str) -> Vec<Section> {
     flush_todo(&mut current_todo, &mut current_section);
     if let Some(sec) = current_section {
         sections.push(sec);
+    }
+
+    for section in &mut sections {
+        sort_by_priority(&mut section.todos);
     }
 
     sections
@@ -149,4 +176,35 @@ pub fn set_state(content: &str, line_no: usize, state: TodoState) -> String {
         result.push('\n');
     }
     result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn priority_markers_are_stripped_and_counted() {
+        let content = "## work\n- [ ] !!! urgent thing\n- [ ] !! medium thing\n- [ ] ! low thing\n- [ ] plain thing\n";
+        let sections = parse_sections(content);
+        let todos = &sections[0].todos;
+        assert_eq!(todos[0].text, "urgent thing");
+        assert_eq!(todos[0].priority, 3);
+        assert_eq!(todos[3].text, "plain thing");
+        assert_eq!(todos[3].priority, 0);
+    }
+
+    #[test]
+    fn todos_are_sorted_by_priority_descending() {
+        let content = "## work\n- [ ] plain a\n- [ ] !! medium\n- [ ] !!! urgent\n- [ ] plain b\n- [ ] ! low\n";
+        let sections = parse_sections(content);
+        let texts: Vec<&str> = sections[0].todos.iter().map(|t| t.text.as_str()).collect();
+        assert_eq!(texts, vec!["urgent", "medium", "low", "plain a", "plain b"]);
+    }
+
+    #[test]
+    fn more_than_three_bangs_caps_at_three() {
+        let (priority, text) = extract_priority("!!!! way too urgent");
+        assert_eq!(priority, 3);
+        assert_eq!(text, "! way too urgent");
+    }
 }
