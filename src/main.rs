@@ -117,19 +117,56 @@ pub(crate) fn atomic_write(path: &Path, content: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn highlight_text(text: &str) -> String {
+fn to_owo_style(style: &config::ElementStyle) -> owo_colors::Style {
+    use config::{NamedColor, TextStyle, ThemeColor};
+
+    let mut owo = owo_colors::Style::new();
+    if let Some(color) = &style.color {
+        owo = match color {
+            ThemeColor::Rgb { r, g, b } => owo.color(owo_colors::Rgb(*r, *g, *b)),
+            ThemeColor::Named(n) => owo.color(match n {
+                NamedColor::Black => owo_colors::AnsiColors::Black,
+                NamedColor::Red => owo_colors::AnsiColors::Red,
+                NamedColor::Green => owo_colors::AnsiColors::Green,
+                NamedColor::Yellow => owo_colors::AnsiColors::Yellow,
+                NamedColor::Blue => owo_colors::AnsiColors::Blue,
+                NamedColor::Magenta => owo_colors::AnsiColors::Magenta,
+                NamedColor::Cyan => owo_colors::AnsiColors::Cyan,
+                NamedColor::White => owo_colors::AnsiColors::White,
+                NamedColor::DarkGrey => owo_colors::AnsiColors::BrightBlack,
+                NamedColor::DarkRed => owo_colors::AnsiColors::BrightRed,
+                NamedColor::DarkGreen => owo_colors::AnsiColors::BrightGreen,
+                NamedColor::DarkYellow => owo_colors::AnsiColors::BrightYellow,
+                NamedColor::DarkBlue => owo_colors::AnsiColors::BrightBlue,
+                NamedColor::DarkMagenta => owo_colors::AnsiColors::BrightMagenta,
+                NamedColor::DarkCyan => owo_colors::AnsiColors::BrightCyan,
+            }),
+        };
+    }
+    for s in &style.styles {
+        owo = match s {
+            TextStyle::Bold => owo.bold(),
+            TextStyle::Underline => owo.underline(),
+            TextStyle::Italic => owo.italic(),
+            TextStyle::Dimmed => owo.dimmed(),
+        };
+    }
+    owo
+}
+
+fn highlight_text(text: &str, theme: &config::Theme) -> String {
     use highlight::Segment;
     let mut out = String::new();
     for seg in highlight::parse_segments(text) {
         match seg {
             Segment::Plain(s) => out.push_str(s),
-            Segment::Mention(s) => out.push_str(&format!("{}", s.magenta())),
-            Segment::Tag(s) => out.push_str(&format!("{}", s.cyan())),
-            Segment::Code(s) => out.push_str(&format!("{}", s.bold())),
+            Segment::Mention(s) => out.push_str(&format!("{}", to_owo_style(&theme.mention).style(s))),
+            Segment::Tag(s) => out.push_str(&format!("{}", to_owo_style(&theme.tag).style(s))),
+            Segment::Code(s) => out.push_str(&format!("{}", to_owo_style(&theme.code).style(s))),
             Segment::Link { text, url } => {
                 out.push_str(&format!(
                     "\x1b]8;;{url}\x1b\\{}\x1b]8;;\x1b\\",
-                    text.blue().underline()
+                    to_owo_style(&theme.link).style(text)
                 ));
             }
         }
@@ -137,7 +174,7 @@ fn highlight_text(text: &str) -> String {
     out
 }
 
-fn print_todos(sections: &[markdown::Section], filter: Option<&str>) {
+fn print_todos(sections: &[markdown::Section], filter: Option<&str>, theme: &config::Theme) {
     let mut printed_any = false;
     for section in sections {
         if let Some(f) = filter {
@@ -156,9 +193,9 @@ fn print_todos(sections: &[markdown::Section], filter: Option<&str>) {
                 _ => "[ ]",
             };
             let text = if todo.state == markdown::TodoState::Done {
-                highlight_text(&todo.text).dimmed().to_string()
+                highlight_text(&todo.text, theme).dimmed().to_string()
             } else {
-                highlight_text(&todo.text)
+                highlight_text(&todo.text, theme)
             };
             println!("  {} {text}", sigil.dimmed());
             for note in &todo.note_lines {
@@ -250,7 +287,7 @@ fn main() -> anyhow::Result<()> {
             let content = std::fs::read_to_string(&path)?;
             let sections = markdown::parse_sections(&content);
             let filter = if all { None } else { project.as_deref() };
-            print_todos(&sections, filter);
+            print_todos(&sections, filter, &config.theme);
         }
         Cmd::Done => {
             carryover::carry(&notes_dir)?;
