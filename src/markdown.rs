@@ -178,6 +178,29 @@ pub fn set_state(content: &str, line_no: usize, state: TodoState) -> String {
     result
 }
 
+/// Set the priority (0-3, i.e. a `!`/`!!`/`!!!` run) of the todo at the given
+/// (0-indexed) line number, replacing any existing priority marker in-place.
+pub fn set_priority(content: &str, line_no: usize, priority: u8) -> String {
+    const SIGIL_LEN: usize = 6; // "- [ ] ", "- [/] ", "- [x] ", "- [X] " are all 6 bytes
+
+    let has_trailing = content.ends_with('\n');
+    let mut lines: Vec<String> = content.lines().map(|l| l.to_string()).collect();
+    if let Some(line) = lines.get_mut(line_no) {
+        if line.len() >= SIGIL_LEN {
+            let sigil = line[..SIGIL_LEN].to_string();
+            let (_, bare_text) = extract_priority(&line[SIGIL_LEN..]);
+            let marker = "!".repeat(priority.min(3) as usize);
+            let new_text = if priority > 0 { format!("{marker} {bare_text}") } else { bare_text };
+            *line = format!("{sigil}{new_text}");
+        }
+    }
+    let mut result = lines.join("\n");
+    if has_trailing {
+        result.push('\n');
+    }
+    result
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -199,6 +222,27 @@ mod tests {
         let sections = parse_sections(content);
         let texts: Vec<&str> = sections[0].todos.iter().map(|t| t.text.as_str()).collect();
         assert_eq!(texts, vec!["urgent", "medium", "low", "plain a", "plain b"]);
+    }
+
+    #[test]
+    fn set_priority_adds_marker() {
+        let content = "## work\n- [ ] plain thing\n";
+        let updated = set_priority(content, 1, 2);
+        assert_eq!(updated, "## work\n- [ ] !! plain thing\n");
+    }
+
+    #[test]
+    fn set_priority_replaces_existing_marker() {
+        let content = "## work\n- [ ] !!! urgent thing\n";
+        let updated = set_priority(content, 1, 1);
+        assert_eq!(updated, "## work\n- [ ] ! urgent thing\n");
+    }
+
+    #[test]
+    fn set_priority_zero_removes_marker() {
+        let content = "## work\n- [ ] ! low thing\n";
+        let updated = set_priority(content, 1, 0);
+        assert_eq!(updated, "## work\n- [ ] low thing\n");
     }
 
     #[test]

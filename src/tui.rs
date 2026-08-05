@@ -18,6 +18,7 @@ struct Item {
     line_no: usize,
     original_state: TodoState,
     priority: u8,
+    original_priority: u8,
 }
 
 pub fn run(path: &Path, theme: &crate::config::Theme) -> anyhow::Result<()> {
@@ -34,6 +35,7 @@ pub fn run(path: &Path, theme: &crate::config::Theme) -> anyhow::Result<()> {
                 line_no: t.line_no,
                 original_state: t.state,
                 priority: t.priority,
+                original_priority: t.priority,
             })
         })
         .collect();
@@ -61,6 +63,9 @@ pub fn run(path: &Path, theme: &crate::config::Theme) -> anyhow::Result<()> {
     for item in &items {
         if item.state != item.original_state {
             content = markdown::set_state(&content, item.line_no, item.state);
+        }
+        if item.priority != item.original_priority {
+            content = markdown::set_priority(&content, item.line_no, item.priority);
         }
     }
     crate::atomic_write(path, &content)?;
@@ -93,6 +98,9 @@ fn event_loop(
                 }
                 KeyCode::Char(' ') | KeyCode::Enter => {
                     items[*cursor].state = items[*cursor].state.next();
+                }
+                KeyCode::Char('p') => {
+                    items[*cursor].priority = (items[*cursor].priority + 1) % 4;
                 }
                 _ => {}
             }
@@ -196,7 +204,7 @@ fn render(stdout: &mut impl Write, items: &[Item], cursor: usize, theme: &crate:
         stdout,
         cursor::MoveTo(0, rows - 1),
         SetForegroundColor(Color::DarkGrey),
-        Print("j/k: move  space: cycle state  q: save & quit"),
+        Print("j/k: move  space: cycle state  p: cycle priority  q: save & quit"),
         ResetColor,
     )?;
 
