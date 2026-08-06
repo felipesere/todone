@@ -41,6 +41,10 @@ fn build_content(date: &str, sections: &[crate::markdown::Section]) -> String {
         out.push_str(&format!("## {}\n", section.name));
         for todo in carry {
             out.push_str(todo.state.sigil());
+            if todo.priority > 0 {
+                out.push_str(&"!".repeat(todo.priority.min(3) as usize));
+                out.push(' ');
+            }
             out.push_str(&todo.text);
             out.push('\n');
             for note in &todo.note_lines {
@@ -57,4 +61,20 @@ fn build_content(date: &str, sections: &[crate::markdown::Section]) -> String {
     }
 
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn carried_todos_keep_their_priority_marker() {
+        let prev_content = "# 2026-08-09\n\n## inbox\n- [ ] !!! urgent task\n- [ ] plain task\n";
+        let sections = crate::markdown::parse_sections(prev_content);
+
+        let content = build_content("2026-08-10", &sections);
+
+        assert!(content.contains("- [ ] !!! urgent task\n"));
+        assert!(content.contains("- [ ] plain task\n"));
+    }
 }
