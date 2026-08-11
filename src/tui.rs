@@ -187,16 +187,18 @@ fn render(stdout: &mut impl Write, items: &[Item], cursor: usize, theme: &crate:
 
         if i == cursor {
             queue!(stdout, SetAttribute(Attribute::Reverse), Print(format!("> {} ", checkbox)), SetAttribute(Attribute::Reset))?;
-            queue_priority_marker(stdout, item.priority, &theme.priority, line_style)?;
-            queue_highlighted(stdout, &item.text, line_style, theme)?;
-            queue!(stdout, Print("\r\n"))?;
+            // Reverse-video reset clears the colour too, so re-apply the line
+            // style before the text.
+            apply_element_style(stdout, line_style)?;
         } else {
             apply_element_style(stdout, line_style)?;
             queue!(stdout, Print(format!("  {} ", checkbox)))?;
-            queue_priority_marker(stdout, item.priority, &theme.priority, line_style)?;
-            queue_highlighted(stdout, &item.text, line_style, theme)?;
-            queue!(stdout, ResetColor, SetAttribute(Attribute::Reset), Print("\r\n"))?;
         }
+        queue_priority_marker(stdout, item.priority, &theme.priority, line_style)?;
+        queue_highlighted(stdout, &item.text, line_style, theme)?;
+        // Always reset before the newline, otherwise the line style bleeds
+        // into the next item.
+        queue!(stdout, ResetColor, SetAttribute(Attribute::Reset), Print("\r\n"))?;
     }
 
     let (_, rows) = terminal::size()?;
